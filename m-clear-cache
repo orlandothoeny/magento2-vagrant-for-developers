@@ -1,9 +1,35 @@
 #!/usr/bin/env bash
 
-vagrant_dir=$(cd "$(dirname "$0")"; pwd)
+set -e
 
-# Enable trace printing and exit on the first error
-set -ex
+cd "$(dirname "${BASH_SOURCE[0]}")" && vagrant_dir=$PWD
 
-cd ${vagrant_dir}
-vagrant ssh -c "m-clear-cache"
+source "${vagrant_dir}/scripts/output_functions.sh"
+resetNestingLevel
+current_script_name=`basename "$0"`
+initLogFile ${current_script_name}
+
+warm_up_cache=0
+while getopts 'w' flag; do
+  case "${flag}" in
+    w) warm_up_cache=1 ;;
+    *) error "Unexpected option" && exit 1;;
+  esac
+done
+
+debug_vagrant_project="$(bash "${vagrant_dir}/scripts/get_config_value.sh" "debug_vagrant_project")"
+if [[ ${debug_vagrant_project} -eq 1 ]]; then
+    set -x
+fi
+
+bash "${vagrant_dir}/scripts/host/m_clear_cache.sh" "$@" 2> >(logError)
+
+if [[ ${warm_up_cache} -eq 1 ]]; then
+    incrementNestingLevel
+    bash "${vagrant_dir}/scripts/host/warm_up_cache.sh" 2> >(logError)
+    decrementNestingLevel
+else
+    info "Use 'bash ./m-clear-cache -w' to get automatic cache warm up"
+fi
+
+info "$(regular)See details in $(bold)${vagrant_dir}/log/${current_script_name}.log$(regular). For debug output set $(bold)debug:vagrant_project$(regular) to $(bold)1$(regular) in $(bold)etc/config.yaml$(regular)"

@@ -1,17 +1,73 @@
 #!/usr/bin/env bash
 
-echo "Clearing Magento cache..."
+vagrant_dir="/vagrant"
 
-rm -f ${MAGENTO_ROOT}/app/etc/paths.php
-#clear var
-for dir in `ls ${MAGENTO_ROOT}/var` ; do
-    rm -rf ${MAGENTO_ROOT}/var/${dir}/* ;
-done
-#clear pub/statics
-cd ${MAGENTO_ROOT}/pub && mv static/.htaccess static_htaccess.back && rm -rf static/* && mv static_htaccess.back static/.htaccess
-#clear integration tests tmp
-cd ${MAGENTO_ROOT}/dev/tests/integration && mv tmp/.gitignore tmp_gitignore.back && rm -rf tmp/* && mv tmp_gitignore.back tmp/.gitignore
-#clear unit tests tmp
-cd ${MAGENTO_ROOT}/dev/tests/unit && rm -rf tmp/*
+source "${vagrant_dir}/scripts/output_functions.sh"
 
-echo "Magento cache cleared."
+if [[ ${SKIP_CACHE_CLEAN} -eq 1 ]] ; then
+    exit 0
+fi
+
+status "Clearing Magento cache"
+incrementNestingLevel
+
+status "Clearing directories containing temporary files"
+
+mage_mode=$(bash "${vagrant_dir}/scripts/get_config_value.sh" "magento_mode")
+
+rm -f "${MAGENTO_ROOT}/app/etc/paths.php"
+if [[ -d "${MAGENTO_ROOT}/var" ]]; then
+    # clear var
+    cd "${MAGENTO_ROOT}"
+    mv var/.htaccess var_htaccess.back
+    if [[ -d "${MAGENTO_ROOT}/var/generation" ]] && [[ ${mage_mode} == "production" ]]; then
+        # for Magento v2.0.x and v2.1.x
+        mv var/generation var_generation.back
+    fi
+    rm -rf var/* var/.[^.]*
+    if [[ -f var_htaccess.back ]]; then
+        mv var_htaccess.back var/.htaccess
+    fi
+    if [[ -d "${MAGENTO_ROOT}/var_generation.back" ]] && [[ ${mage_mode} == "production" ]]; then
+        mv var_generation.back var/generation
+    fi
+fi
+
+if [[ -d "${MAGENTO_ROOT}/generated" ]] && [[ ${mage_mode} != "production" ]]; then
+    # for Magento v2.2.0 and greater
+    cd "${MAGENTO_ROOT}"
+    rm -rf generated/*
+fi
+
+if [[ -d "${MAGENTO_ROOT}/pub" ]] && [[ ${mage_mode} != "production" ]]; then
+    # clear pub/statics
+    cd "${MAGENTO_ROOT}/pub" && mv static/.htaccess static_htaccess.back && rm -rf static && mkdir static
+    if [[ -f static_htaccess.back ]]; then
+        mv static_htaccess.back static/.htaccess
+    fi
+fi
+
+if [[ -d "${MAGENTO_ROOT}/dev" ]]; then
+    # clear integration tests tmp
+    cd "${MAGENTO_ROOT}/dev/tests/integration" && mv tmp/.gitignore tmp_gitignore.back && rm -rf tmp && mkdir tmp
+    if [[ -f tmp_gitignore.back ]]; then
+        mv tmp_gitignore.back tmp/.gitignore
+    fi
+    # clear unit tests tmp
+    cd "${MAGENTO_ROOT}/dev/tests/unit" && mv tmp/.gitignore tmp_gitignore.back && rm -rf tmp && mkdir tmp
+    if [[ -f tmp_gitignore.back ]]; then
+        mv tmp_gitignore.back tmp/.gitignore
+    fi
+fi
+
+if [[ -f "${MAGENTO_ROOT}/app/etc/config.php" ]]; then
+
+    bash configure_debugging
+
+    bash configure_cache_backend
+
+    status "Flushing cache using 'bin/magento cache:flush'"
+    php "${MAGENTO_ROOT}/bin/magento" cache:flush 2> >(logError) > >(log)
+fi
+
+decrementNestingLevel

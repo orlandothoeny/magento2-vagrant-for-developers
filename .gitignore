@@ -1,2 +1,6 @@
 /.vagrant
 /.idea
+/log/*.log
+/scripts/.current_nesting_level
+/scripts/.current_log_path
+.DS_Store
